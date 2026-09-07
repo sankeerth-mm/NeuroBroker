@@ -1,0 +1,4 @@
+# NeuroBroker Volunteer Node Configuration
+server: "http://127.0.0.1:8000"
+token: "NB_VOLUNTEER_SECRET_2026"
+heartbeat_interval: 5

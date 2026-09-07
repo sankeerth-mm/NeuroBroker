@@ -1,0 +1,118 @@
+{
+  "Random Scheduling": {
+    "scheduler_name": "Random Scheduling",
+    "total_job_time_sec": 109.76,
+    "avg_round_time_sec": 21.95,
+    "avg_transfer_time_sec": 2.11,
+    "final_accuracy": 80.79,
+    "jains_fairness_index": 0.789,
+    "node_participation": {
+      "NODE-01": 4,
+      "NODE-02": 0,
+      "NODE-03": 4,
+      "NODE-04": 3,
+      "NODE-05": 4
+    },
+    "round_accuracies": [
+      37.04,
+      52.83,
+      62.32,
+      73.64,
+      80.79
+    ],
+    "round_durations": [
+      15.04,
+      26.56,
+      26.56,
+      15.04,
+      26.56
+    ]
+  },
+  "Round Robin": {
+    "scheduler_name": "Round Robin",
+    "total_job_time_sec": 105.94,
+    "avg_round_time_sec": 21.19,
+    "avg_transfer_time_sec": 1.97,
+    "final_accuracy": 81.3,
+    "jains_fairness_index": 1.0,
+    "node_participation": {
+      "NODE-01": 3,
+      "NODE-02": 3,
+      "NODE-03": 3,
+      "NODE-04": 3,
+      "NODE-05": 3
+    },
+    "round_accuracies": [
+      38.35,
+      55.07,
+      64.77,
+      76.59,
+      81.3
+    ],
+    "round_durations": [
+      15.04,
+      26.56,
+      26.56,
+      11.22,
+      26.56
+    ]
+  },
+  "NeuroBroker Resource-Aware": {
+    "scheduler_name": "NeuroBroker Resource-Aware",
+    "total_job_time_sec": 45.71,
+    "avg_round_time_sec": 9.14,
+    "avg_transfer_time_sec": 0.39,
+    "final_accuracy": 88.33,
+    "jains_fairness_index": 0.6,
+    "node_participation": {
+      "NODE-01": 5,
+      "NODE-02": 5,
+      "NODE-03": 0,
+      "NODE-04": 0,
+      "NODE-05": 5
+    },
+    "round_accuracies": [
+      40.19,
+      60.25,
+      73.58,
+      82.44,
+      88.33
+    ],
+    "round_durations": [
+      9.14,
+      9.14,
+      9.14,
+      9.14,
+      9.14
+    ]
+  },
+  "NeuroBroker Hybrid DRL": {
+    "scheduler_name": "NeuroBroker Hybrid DRL",
+    "total_job_time_sec": 45.71,
+    "avg_round_time_sec": 9.14,
+    "avg_transfer_time_sec": 0.39,
+    "final_accuracy": 88.33,
+    "jains_fairness_index": 0.6,
+    "node_participation": {
+      "NODE-01": 5,
+      "NODE-02": 5,
+      "NODE-03": 0,
+      "NODE-04": 0,
+      "NODE-05": 5
+    },
+    "round_accuracies": [
+      40.19,
+      60.25,
+      73.58,
+      82.44,
+      88.33
+    ],
+    "round_durations": [
+      9.14,
+      9.14,
+      9.14,
+      9.14,
+      9.14
+    ]
+  }
+}
