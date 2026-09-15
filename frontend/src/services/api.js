@@ -1,5 +1,6 @@
 const host = typeof window !== "undefined" && window.location.hostname ? window.location.hostname : "127.0.0.1";
-const API_BASE = `http://${host}:8000`;
+const protocol = typeof window !== "undefined" && window.location.protocol === "https:" ? "https" : "http";
+const API_BASE = `${protocol}://${host}:8000`;
 
 function getHeaders(isJson = true) {
   const token = localStorage.getItem("nb_token");
@@ -13,7 +14,25 @@ function getHeaders(isJson = true) {
   return headers;
 }
 
+async function responseError(res, fallback) {
+  const payload = await res.json().catch(() => null);
+  return new Error(payload?.detail || payload?.message || fallback);
+}
+
 export const api = {
+  async downloadFile(url, filename) {
+    const res = await fetch(url, { headers: getHeaders(false) });
+    if (!res.ok) throw await responseError(res, "Download failed");
+    const blobUrl = URL.createObjectURL(await res.blob());
+    const link = document.createElement("a");
+    link.href = blobUrl;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(blobUrl);
+  },
+
   // Auth
   async login(email, password) {
     const res = await fetch(`${API_BASE}/auth/login`, {
@@ -163,6 +182,7 @@ export const api = {
       method: "POST",
       headers: getHeaders(),
     });
+    if (!res.ok) throw await responseError(res, "Unable to start training job");
     return res.json();
   },
 
@@ -171,6 +191,7 @@ export const api = {
       method: "POST",
       headers: getHeaders(),
     });
+    if (!res.ok) throw await responseError(res, "Unable to stop training job");
     return res.json();
   },
 
@@ -179,6 +200,7 @@ export const api = {
       method: "POST",
       headers: getHeaders(),
     });
+    if (!res.ok) throw await responseError(res, "Unable to pause training job");
     return res.json();
   },
 
@@ -187,6 +209,7 @@ export const api = {
       method: "POST",
       headers: getHeaders(),
     });
+    if (!res.ok) throw await responseError(res, "Unable to resume training job");
     return res.json();
   },
 
@@ -205,6 +228,7 @@ export const api = {
 
   async getJobReport(jobId) {
     const res = await fetch(`${API_BASE}/api/jobs/${jobId}/report`, { headers: getHeaders() });
+    if (!res.ok) throw await responseError(res, "Failed to load training report");
     return res.json();
   },
 
@@ -220,6 +244,7 @@ export const api = {
     if (level) url += `&level=${level}`;
     if (component) url += `&component=${component}`;
     const res = await fetch(url, { headers: getHeaders() });
+    if (!res.ok) throw await responseError(res, "Failed to load system logs");
     return res.json();
   },
 
@@ -227,6 +252,7 @@ export const api = {
     let url = `${API_BASE}/api/admin/scheduler-decisions?limit=100`;
     if (jobId) url += `&job_id=${jobId}`;
     const res = await fetch(url, { headers: getHeaders() });
+    if (!res.ok) throw await responseError(res, "Failed to load scheduler decisions");
     return res.json();
   },
 };

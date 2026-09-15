@@ -21,12 +21,12 @@ from backend.app.auth.dependencies import get_current_active_user, get_current_a
 router = APIRouter(prefix="/api/admin", tags=["Administrator"])
 
 @router.get("/users", response_model=List[UserResponse])
-async def get_all_users(current_user: User = Depends(get_current_active_user), db: AsyncSession = Depends(get_db)):
+async def get_all_users(current_user: User = Depends(get_current_admin_user), db: AsyncSession = Depends(get_db)):
     result = await db.execute(select(User).order_by(User.id.asc()))
     return result.scalars().all()
 
 @router.get("/stats", response_model=AdminDashboardStats)
-async def get_admin_dashboard_stats(current_user: User = Depends(get_current_active_user), db: AsyncSession = Depends(get_db)):
+async def get_admin_dashboard_stats(current_user: User = Depends(get_current_admin_user), db: AsyncSession = Depends(get_db)):
     u_count = (await db.execute(select(func.count(User.id)))).scalar() or 0
     j_count = (await db.execute(select(func.count(TrainingJob.id)))).scalar() or 0
     running_jobs = (await db.execute(select(func.count(TrainingJob.id)).where(TrainingJob.status.in_(["TRAINING", "SCHEDULING", "PARTITIONING", "AGGREGATING"])))).scalar() or 0
@@ -62,7 +62,7 @@ async def get_system_logs(
     level: Optional[str] = None,
     component: Optional[str] = None,
     limit: int = 100,
-    current_user: User = Depends(get_current_active_user),
+    current_user: User = Depends(get_current_admin_user),
     db: AsyncSession = Depends(get_db)
 ):
     query = select(SystemLog).order_by(desc(SystemLog.timestamp)).limit(limit)
@@ -77,7 +77,7 @@ async def get_system_logs(
 async def get_scheduler_decisions(
     job_id: Optional[int] = None,
     limit: int = 100,
-    current_user: User = Depends(get_current_active_user),
+    current_user: User = Depends(get_current_admin_user),
     db: AsyncSession = Depends(get_db)
 ):
     query = select(SchedulerDecision).order_by(desc(SchedulerDecision.timestamp)).limit(limit)
@@ -89,7 +89,7 @@ async def get_scheduler_decisions(
 @router.get("/audit-logs", response_model=List[AuditLogResponse])
 async def get_audit_logs(
     limit: int = 100,
-    current_user: User = Depends(get_current_active_user),
+    current_user: User = Depends(get_current_admin_user),
     db: AsyncSession = Depends(get_db)
 ):
     query = select(AuditLog).order_by(desc(AuditLog.timestamp)).limit(limit)

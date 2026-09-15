@@ -12,8 +12,6 @@ RUN pip install --no-cache-dir -r requirements.txt asyncpg
 
 COPY backend /app/backend
 COPY scripts /app/scripts
-COPY example_models /app/example_models
-COPY example_datasets /app/example_datasets
 COPY volunteer_node /app/volunteer_node
 
 ENV PYTHONUNBUFFERED=1

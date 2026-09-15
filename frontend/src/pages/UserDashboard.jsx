@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { api } from "../services/api";
 import { wsService } from "../services/websocket";
+import { useAuth } from "../context/AuthContext";
 import MetricCard from "../components/MetricCard";
 import { 
   Activity, 
@@ -18,6 +19,7 @@ import {
 } from "lucide-react";
 
 export default function UserDashboard({ setActiveTab, setSelectedJobId }) {
+  const { user } = useAuth();
   const [jobs, setJobs] = useState([]);
   const [nodes, setNodes] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -245,13 +247,15 @@ export default function UserDashboard({ setActiveTab, setSelectedJobId }) {
               <Server size={18} color="var(--accent-emerald)" />
               Volunteer Fleet
             </h2>
-            <button 
-              onClick={() => setActiveTab("admin")} 
-              className="btn-secondary" 
-              style={{ fontSize: "0.78rem", padding: "0.35rem 0.65rem" }}
-            >
-              All Nodes
-            </button>
+            {user?.role === "admin" && (
+              <button
+                onClick={() => setActiveTab("admin")}
+                className="btn-secondary"
+                style={{ fontSize: "0.78rem", padding: "0.35rem 0.65rem" }}
+              >
+                All Nodes
+              </button>
+            )}
           </div>
 
           {nodes.length === 0 ? (

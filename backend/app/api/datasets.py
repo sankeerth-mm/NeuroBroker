@@ -14,7 +14,7 @@ from backend.app.config import settings
 from backend.app.models.user import User
 from backend.app.models.dataset import Dataset, DatasetPartition
 from backend.app.schemas.dataset import DatasetResponse, DatasetPartitionResponse
-from backend.app.auth.dependencies import get_current_active_user
+from backend.app.auth.dependencies import get_current_active_user, require_volunteer_token
 from backend.app.security.checksum import compute_sha256
 from backend.app.partitioning.non_iid_detector import non_iid_detector
 from backend.app.logging.logger import log_event
@@ -159,7 +159,11 @@ async def download_dataset(
     return FileResponse(dataset.file_path, filename=Path(dataset.file_path).name)
 
 @router.get("/partitions/{partition_id}/download")
-async def download_partition(partition_id: int, db: AsyncSession = Depends(get_db)):
+async def download_partition(
+    partition_id: int,
+    volunteer_token: str = Depends(require_volunteer_token),
+    db: AsyncSession = Depends(get_db),
+):
     """Download specific partition file for volunteer worker execution."""
     query = select(DatasetPartition).where(DatasetPartition.id == partition_id)
     result = await db.execute(query)

@@ -7,7 +7,7 @@ services:
     restart: unless-stopped
     environment:
       POSTGRES_USER: neurobroker
-      POSTGRES_PASSWORD: neurobroker_password_2026
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD before starting Docker Compose}"
       POSTGRES_DB: neurobroker_db
     ports:
       - "5432:5432"
@@ -29,8 +29,11 @@ services:
       postgres:
         condition: service_healthy
     environment:
-      DATABASE_URL: "postgresql+asyncpg://neurobroker:neurobroker_password_2026@postgres:5432/neurobroker_db"
-      VOLUNTEER_TOKEN: "NB_VOLUNTEER_SECRET_2026"
+      DATABASE_URL: "postgresql+asyncpg://neurobroker:${POSTGRES_PASSWORD}@postgres:5432/neurobroker_db"
+      SECRET_KEY: "${SECRET_KEY:?Set SECRET_KEY before starting Docker Compose}"
+      VOLUNTEER_TOKEN: "${VOLUNTEER_TOKEN:?Set VOLUNTEER_TOKEN before starting Docker Compose}"
+      ENVIRONMENT: "production"
+      CORS_ORIGINS: "http://localhost:5173,http://127.0.0.1:5173"
       HOST: "0.0.0.0"
       PORT: 8000
     ports:

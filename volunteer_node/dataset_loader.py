@@ -73,17 +73,20 @@ class DatasetLoader:
     @staticmethod
     def create_dataloader(partition_path: Path, batch_size: int = 32) -> Tuple[DataLoader, int]:
         """
-        Extracts partition if zipped and returns (DataLoader, total_samples).
+        Extracts a ZIP partition or reads a CSV partition and returns
+        (DataLoader, total_samples). The broker may send a CSV partition using
+        a generic download filename, so inspect the file signature instead of
+        relying only on the filename extension.
         """
         extract_dir = partition_path
-        if partition_path.is_file() and partition_path.suffix == ".zip":
+        is_zip_partition = partition_path.is_file() and zipfile.is_zipfile(partition_path)
+        if is_zip_partition:
             extract_dir = partition_path.parent / f"extracted_{partition_path.stem}"
             extract_dir.mkdir(parents=True, exist_ok=True)
             with zipfile.ZipFile(partition_path, "r") as z:
                 z.extractall(extract_dir)
-                
-        if partition_path.suffix == ".csv" or (isinstance(extract_dir, Path) and extract_dir.is_file() and extract_dir.suffix == ".csv"):
-            csv_target = partition_path if partition_path.suffix == ".csv" else extract_dir
+        if partition_path.is_file() and not is_zip_partition:
+            csv_target = partition_path
             ds = CSVTabularDataset(csv_target)
         else:
             ds = LocalPartitionImageDataset(extract_dir)
