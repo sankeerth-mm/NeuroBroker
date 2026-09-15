@@ -27,6 +27,9 @@ class NodeClient:
         self.session.mount("http://", adapter)
         self.session.mount("https://", adapter)
 
+    def _headers(self) -> Dict[str, str]:
+        return {"X-Volunteer-Token": self.token}
+
     def register(self, hardware_specs: Dict[str, Any]) -> Dict[str, Any]:
         """Register volunteer node with the broker server."""
         url = f"{self.server_url}/api/nodes/register"
@@ -35,7 +38,7 @@ class NodeClient:
             "node_id": self.node_id,
             **hardware_specs
         }
-        resp = self.session.post(url, json=payload, timeout=10)
+        resp = self.session.post(url, json=payload, headers=self._headers(), timeout=10)
         if resp.status_code != 200:
             raise RuntimeError(f"Registration failed ({resp.status_code}): {resp.text}")
         data = resp.json()
@@ -50,7 +53,7 @@ class NodeClient:
             **telemetry
         }
         try:
-            resp = self.session.post(url, json=payload, timeout=5)
+            resp = self.session.post(url, json=payload, headers=self._headers(), timeout=5)
             if resp.status_code != 200:
                 logger.warning(f"Heartbeat rejected: {resp.text}")
                 return {"status": "error"}
@@ -71,14 +74,14 @@ class NodeClient:
             "node_id": self.node_id,
             **scores
         }
-        resp = self.session.post(url, json=payload, timeout=10)
+        resp = self.session.post(url, json=payload, headers=self._headers(), timeout=10)
         return resp.json()
 
     def download_file(self, relative_url: str, dest_path: Path) -> Path:
         """Download a file (model package, checkpoint, or partition) from the broker."""
         full_url = f"{self.server_url}{relative_url}"
         dest_path.parent.mkdir(parents=True, exist_ok=True)
-        resp = self.session.get(full_url, stream=True, timeout=60)
+        resp = self.session.get(full_url, headers=self._headers(), stream=True, timeout=60)
         if resp.status_code != 200:
             raise RuntimeError(f"Failed to download {relative_url}: {resp.status_code}")
         with open(dest_path, "wb") as f:
@@ -96,7 +99,7 @@ class NodeClient:
             "progress_percent": progress_pct
         }
         try:
-            self.session.post(url, data=data, timeout=5)
+            self.session.post(url, data=data, headers=self._headers(), timeout=5)
         except Exception as e:
             logger.warning(f"Failed to report progress: {e}")
 
@@ -105,7 +108,7 @@ class NodeClient:
         job_id: int,
         task_id: int,
         loss: float,
-        acc: float,
+        accuracy: float,
         sample_count: int,
         training_time_sec: float,
         weights_path: Path
@@ -114,13 +117,13 @@ class NodeClient:
         url = f"{self.server_url}/api/jobs/{job_id}/tasks/{task_id}/complete"
         data = {
             "loss": loss,
-            "accuracy": acc,
+            "accuracy": accuracy,
             "sample_count": sample_count,
             "training_time_seconds": training_time_sec,
         }
         with open(weights_path, "rb") as f:
             files = {"weights_file": (weights_path.name, f, "application/octet-stream")}
-            resp = self.session.post(url, data=data, files=files, timeout=60)
+            resp = self.session.post(url, data=data, files=files, headers=self._headers(), timeout=60)
         if resp.status_code != 200:
             raise RuntimeError(f"Failed to upload model update: {resp.text}")
         return resp.json()

@@ -24,6 +24,7 @@ class Settings(BaseSettings):
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24 * 7  # 7 days
     VOLUNTEER_REGISTRATION_TOKEN: str = os.getenv("VOLUNTEER_TOKEN", "NB_VOLUNTEER_SECRET_2026")
+    CORS_ORIGINS: str = os.getenv("CORS_ORIGINS", "http://localhost:5173,http://127.0.0.1:5173")
     
     # Database
     DATABASE_URL: str = os.getenv(
@@ -74,6 +75,12 @@ class Settings(BaseSettings):
         extra = "allow"
 
 settings = Settings()
+
+if settings.ENVIRONMENT.lower() in {"production", "prod"}:
+    if settings.SECRET_KEY == "neurobroker-super-secret-key-btech-2026-distributed-dl":
+        raise RuntimeError("SECRET_KEY must be configured in production")
+    if settings.VOLUNTEER_REGISTRATION_TOKEN == "NB_VOLUNTEER_SECRET_2026":
+        raise RuntimeError("VOLUNTEER_TOKEN must be configured in production")
 
 # Ensure all storage directories exist
 for folder in [

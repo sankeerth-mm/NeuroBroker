@@ -22,7 +22,7 @@ from backend.app.schemas.job import (
     JobTaskResponse,
 )
 from backend.app.schemas.model_pkg import ModelVersionResponse
-from backend.app.auth.dependencies import get_current_active_user
+from backend.app.auth.dependencies import get_current_active_user, require_volunteer_token, get_user_or_volunteer
 from backend.app.jobs.orchestrator import orchestrator
 from backend.app.reports.report_generator import report_generator
 from backend.app.security.checksum import compute_sha256
@@ -30,6 +30,12 @@ from backend.app.ws.user_ws import user_ws_manager
 from backend.app.logging.logger import log_event
 
 router = APIRouter(prefix="/api/jobs", tags=["Training Jobs"])
+
+async def _get_visible_job(job_id: int, current_user: User, db: AsyncSession) -> TrainingJob:
+    job = (await db.execute(select(TrainingJob).where(TrainingJob.id == job_id))).scalars().first()
+    if not job or (current_user.role != "admin" and job.user_id != current_user.id):
+        raise HTTPException(status_code=404, detail="Job not found")
+    return job
 
 @router.post("", response_model=JobResponse, status_code=status.HTTP_201_CREATED)
 async def create_job(
@@ -88,7 +94,9 @@ async def list_jobs(
     current_user: User = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db)
 ):
-    query = select(TrainingJob).order_by(desc(TrainingJob.created_at))
+    query = select(TrainingJob).where(TrainingJob.user_id == current_user.id).order_by(desc(TrainingJob.created_at))
+    if current_user.role == "admin":
+        query = select(TrainingJob).order_by(desc(TrainingJob.created_at))
     result = await db.execute(query)
     return result.scalars().all()
 
@@ -98,11 +106,7 @@ async def get_job_detail(
     current_user: User = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db)
 ):
-    query = select(TrainingJob).where(TrainingJob.id == job_id)
-    result = await db.execute(query)
-    job = result.scalars().first()
-    if not job:
-        raise HTTPException(status_code=404, detail="Job not found")
+    job = await _get_visible_job(job_id, current_user, db)
         
     dataset = (await db.execute(select(Dataset).where(Dataset.id == job.dataset_id))).scalars().first()
     model_pkg = (await db.execute(select(ModelPackage).where(ModelPackage.id == job.model_package_id))).scalars().first()
@@ -122,9 +126,7 @@ async def start_training_job(
     current_user: User = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db)
 ):
-    job = (await db.execute(select(TrainingJob).where(TrainingJob.id == job_id))).scalars().first()
-    if not job:
-        raise HTTPException(status_code=404, detail="Job not found")
+    job = await _get_visible_job(job_id, current_user, db)
         
     await orchestrator.start_job(job_id)
     return {"message": f"Job {job.job_code} started successfully."}
@@ -135,6 +137,7 @@ async def stop_training_job(
     current_user: User = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db)
 ):
+    await _get_visible_job(job_id, current_user, db)
     await orchestrator.stop_job(job_id)
     return {"message": f"Job {job_id} stopping."}
 
@@ -144,6 +147,7 @@ async def pause_training_job(
     current_user: User = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db)
 ):
+    await _get_visible_job(job_id, current_user, db)
     await orchestrator.pause_job(job_id)
     return {"message": f"Job {job_id} pausing."}
 
@@ -153,28 +157,34 @@ async def resume_training_job(
     current_user: User = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db)
 ):
+    await _get_visible_job(job_id, current_user, db)
     await orchestrator.resume_job(job_id)
     return {"message": f"Job {job_id} resuming."}
 
 @router.get("/{job_id}/rounds", response_model=List[ModelVersionResponse])
-async def get_job_rounds(job_id: int, db: AsyncSession = Depends(get_db)):
+async def get_job_rounds(job_id: int, current_user: User = Depends(get_current_active_user), db: AsyncSession = Depends(get_db)):
+    await _get_visible_job(job_id, current_user, db)
     query = select(ModelVersion).where(ModelVersion.job_id == job_id).order_by(ModelVersion.round_number.asc())
     result = await db.execute(query)
     return result.scalars().all()
 
 @router.get("/{job_id}/tasks", response_model=List[JobTaskResponse])
-async def get_job_tasks(job_id: int, db: AsyncSession = Depends(get_db)):
+async def get_job_tasks(job_id: int, current_user: User = Depends(get_current_active_user), db: AsyncSession = Depends(get_db)):
+    await _get_visible_job(job_id, current_user, db)
     query = select(TrainingTask).where(TrainingTask.job_id == job_id).order_by(desc(TrainingTask.id))
     result = await db.execute(query)
     return result.scalars().all()
 
 @router.get("/{job_id}/report")
-async def get_job_report(job_id: int, db: AsyncSession = Depends(get_db)):
+async def get_job_report(job_id: int, current_user: User = Depends(get_current_active_user), db: AsyncSession = Depends(get_db)):
+    await _get_visible_job(job_id, current_user, db)
     report = await report_generator.generate_job_report(job_id, db)
     return report
 
 @router.get("/{job_id}/checkpoints/latest")
-async def download_latest_checkpoint(job_id: int, db: AsyncSession = Depends(get_db)):
+async def download_latest_checkpoint(job_id: int, principal = Depends(get_user_or_volunteer), db: AsyncSession = Depends(get_db)):
+    if principal is not None:
+        await _get_visible_job(job_id, principal, db)
     query = select(ModelVersion).where(ModelVersion.job_id == job_id).order_by(desc(ModelVersion.round_number))
     result = await db.execute(query)
     ver = result.scalars().first()
@@ -190,6 +200,7 @@ async def report_task_progress(
     loss: float = Form(...),
     accuracy: float = Form(...),
     progress_percent: float = Form(...),
+    volunteer_token: str = Depends(require_volunteer_token),
     db: AsyncSession = Depends(get_db)
 ):
     query = select(TrainingTask).where(TrainingTask.id == task_id, TrainingTask.job_id == job_id)
@@ -228,6 +239,7 @@ async def report_task_complete(
     sample_count: int = Form(...),
     training_time_seconds: float = Form(...),
     weights_file: UploadFile = File(...),
+    volunteer_token: str = Depends(require_volunteer_token),
     db: AsyncSession = Depends(get_db)
 ):
     query = select(TrainingTask).where(TrainingTask.id == task_id, TrainingTask.job_id == job_id)

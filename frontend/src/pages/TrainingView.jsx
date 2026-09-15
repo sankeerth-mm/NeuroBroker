@@ -35,6 +35,7 @@ export default function TrainingView({ selectedJobId, setSelectedJobId, setActiv
   const [logs, setLogs] = useState([]);
   const [decisions, setDecisions] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [actionError, setActionError] = useState("");
 
   const fetchJobData = async () => {
     if (!selectedJobId) {
@@ -130,13 +131,26 @@ export default function TrainingView({ selectedJobId, setSelectedJobId, setActiv
   };
 
   const handleAction = async (action) => {
+    setActionError("");
     try {
       if (action === "pause") await api.pauseJob(selectedJobId);
       if (action === "resume") await api.resumeJob(selectedJobId);
       if (action === "stop") await api.stopJob(selectedJobId);
       fetchJobData();
     } catch (err) {
-      alert(`Action failed: ${err.message}`);
+      setActionError(err.message || "Training action failed");
+    }
+  };
+
+  const handleDownload = async () => {
+    setActionError("");
+    try {
+      await api.downloadFile(
+        api.getFinalModelDownloadUrl(job.id),
+        `neurobroker_job_${job.id}_final_model.pth`
+      );
+    } catch (err) {
+      setActionError(err.message || "Model download failed");
     }
   };
 
@@ -155,7 +169,7 @@ export default function TrainingView({ selectedJobId, setSelectedJobId, setActiv
     );
   }
 
-  const isRunning = ["TRAINING", "SCHEDULING", "PARTITIONING", "AGGREGATING", "QUEUED"].includes(job.status);
+  const isRunning = ["TRAINING", "SCHEDULING", "PARTITIONING", "AGGREGATING", "QUEUED", "PAUSED"].includes(job.status);
   const isCompleted = job.status === "COMPLETED";
 
   // Prepare chart data
@@ -170,6 +184,11 @@ export default function TrainingView({ selectedJobId, setSelectedJobId, setActiv
 
   return (
     <div className="app-container animate-fade-in" style={{ display: "flex", flexDirection: "column", gap: "1.5rem" }}>
+      {actionError && (
+        <div style={{ color: "var(--accent-rose)", fontSize: "0.82rem", padding: "0.75rem", border: "1px solid rgba(244, 63, 94, 0.35)", borderRadius: "8px", background: "rgba(244, 63, 94, 0.1)" }}>
+          {actionError}
+        </div>
+      )}
       {/* Job Header Bar */}
       <div className="glass-panel" style={{ padding: "1.5rem 2rem", borderLeft: "4px solid var(--primary)" }}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: "1rem" }}>
@@ -208,15 +227,13 @@ export default function TrainingView({ selectedJobId, setSelectedJobId, setActiv
             )}
 
             {isCompleted && (
-              <a
-                href={api.getFinalModelDownloadUrl(job.id)}
-                download
+              <button
+                onClick={handleDownload}
                 className="btn-primary"
-                style={{ textDecoration: "none" }}
               >
                 <Download size={16} />
                 <span>Download Final Model (.pth)</span>
-              </a>
+              </button>
             )}
 
             <button onClick={fetchJobData} className="btn-secondary" title="Refresh">

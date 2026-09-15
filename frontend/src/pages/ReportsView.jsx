@@ -16,6 +16,7 @@ export default function ReportsView() {
   const [selectedJob, setSelectedJob] = useState(null);
   const [report, setReport] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
 
   const fetchJobs = async () => {
     try {
@@ -37,6 +38,7 @@ export default function ReportsView() {
       const rep = await api.getJobReport(job.id);
       setReport(rep);
     } catch (e) {
+      setError(e.message || "Failed to load training report");
       console.error("Failed to fetch report:", e);
     }
   };
@@ -56,10 +58,24 @@ export default function ReportsView() {
     URL.revokeObjectURL(url);
   };
 
+  const downloadFinalModel = async () => {
+    if (!selectedJob) return;
+    setError("");
+    try {
+      await api.downloadFile(
+        api.getFinalModelDownloadUrl(selectedJob.id),
+        `neurobroker_job_${selectedJob.id}_final_model.pth`
+      );
+    } catch (err) {
+      setError(err.message || "Final model download failed");
+    }
+  };
+
   return (
     <div className="app-container animate-fade-in" style={{ display: "flex", flexDirection: "column", gap: "1.75rem" }}>
       {/* Header */}
       <div className="glass-panel" style={{ padding: "1.75rem 2rem", borderLeft: "4px solid var(--primary)" }}>
+        {error && <div style={{ color: "var(--accent-rose)", marginBottom: "0.75rem", fontSize: "0.82rem" }}>{error}</div>}
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
           <div>
             <h1 style={{ fontSize: "1.4rem", fontWeight: 800, color: "#ffffff", display: "flex", alignItems: "center", gap: "0.6rem" }}>
@@ -139,15 +155,13 @@ export default function ReportsView() {
                     <span>Download JSON Report</span>
                   </button>
 
-                  <a
-                    href={api.getFinalModelDownloadUrl(selectedJob.id)}
-                    download
+                  <button
+                    onClick={downloadFinalModel}
                     className="btn-primary"
-                    style={{ textDecoration: "none" }}
                   >
                     <Download size={14} />
                     <span>Final Model (.pth)</span>
-                  </a>
+                  </button>
                 </div>
               </div>
 

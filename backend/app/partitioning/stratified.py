@@ -65,6 +65,36 @@ class StratifiedPartitioner:
                     start_idx = end_idx
                 
                 partitions_data[k][class_name].extend(allocated)
+
+        # Tiny datasets can exhaust a class before the final partition even
+        # when the dataset has enough total samples for every selected worker.
+        # Move whole samples from the largest partitions into empty partitions
+        # so workers never receive an unusable zero-sample archive.
+        partition_totals = [
+            sum(len(files) for files in partition.values())
+            for partition in partitions_data
+        ]
+        for empty_index, empty_total in enumerate(partition_totals):
+            if empty_total or sum(partition_totals) < K:
+                continue
+            donor_index = max(
+                (index for index, total in enumerate(partition_totals) if total > 1),
+                key=lambda index: partition_totals[index],
+                default=None,
+            )
+            if donor_index is None:
+                break
+            donor_classes = [
+                name for name, files in partitions_data[donor_index].items() if files
+            ]
+            donor_class = max(
+                donor_classes,
+                key=lambda name: len(partitions_data[donor_index][name]),
+            )
+            moved_file = partitions_data[donor_index][donor_class].pop()
+            partitions_data[empty_index][donor_class].append(moved_file)
+            partition_totals[donor_index] -= 1
+            partition_totals[empty_index] += 1
         
         # Build Zip files for each partition
         partition_manifests = []

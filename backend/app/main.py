@@ -17,6 +17,7 @@ from backend.app.api.admin import router as admin_router
 from backend.app.ws.user_ws import user_ws_manager
 from backend.app.ws.volunteer_ws import volunteer_ws_manager
 from backend.app.logging.logger import broker_logger, log_event
+from backend.app.security.jwt_handler import decode_access_token
 
 # Heartbeat watchdog task
 async def heartbeat_watchdog():
@@ -77,7 +78,7 @@ app = FastAPI(
 # CORS configuration
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=[origin.strip() for origin in settings.CORS_ORIGINS.split(",") if origin.strip()],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -94,6 +95,11 @@ app.include_router(admin_router)
 # WebSocket Endpoint for Dashboard Users
 @app.websocket("/ws/user/{user_id}")
 async def websocket_user_endpoint(websocket: WebSocket, user_id: str):
+    token = websocket.query_params.get("token")
+    payload = decode_access_token(token) if token else None
+    if not payload or str(payload.get("sub")) != str(user_id):
+        await websocket.close(code=1008, reason="Authentication required")
+        return
     await user_ws_manager.connect(websocket, user_id)
     try:
         while True:
@@ -114,6 +120,9 @@ async def websocket_volunteer_endpoint(websocket: WebSocket):
     try:
         init_data = await websocket.receive_json()
         node_id = init_data.get("node_id")
+        if init_data.get("token") != settings.VOLUNTEER_REGISTRATION_TOKEN:
+            await websocket.close(code=1008, reason="Invalid volunteer token")
+            return
         if not node_id:
             await websocket.close(code=1008, reason="Missing node_id in init payload")
             return

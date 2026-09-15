@@ -12,7 +12,9 @@ class WebSocketService {
     }
 
     const host = typeof window !== "undefined" && window.location.hostname ? window.location.hostname : "127.0.0.1";
-    const wsUrl = `ws://${host}:8000/ws/user/${userId}`;
+    const protocol = typeof window !== "undefined" && window.location.protocol === "https:" ? "wss" : "ws";
+    const token = encodeURIComponent(localStorage.getItem("nb_token") || "");
+    const wsUrl = `${protocol}://${host}:8000/ws/user/${userId}?token=${token}`;
     this.ws = new WebSocket(wsUrl);
 
     this.ws.onopen = () => {

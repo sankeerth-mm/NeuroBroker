@@ -21,6 +21,13 @@ class ModelLoader:
             extract_dir = package_path_or_dir.parent / f"extracted_{package_path_or_dir.stem}"
             extract_dir.mkdir(parents=True, exist_ok=True)
             with zipfile.ZipFile(package_path_or_dir, "r") as z:
+                base = extract_dir.resolve()
+                for member in z.infolist():
+                    target = (extract_dir / member.filename).resolve()
+                    try:
+                        target.relative_to(base)
+                    except ValueError as exc:
+                        raise ValueError(f"Unsafe archive member: {member.filename}") from exc
                 z.extractall(extract_dir)
                 
         # Find model.py

@@ -37,7 +37,7 @@ async def websocket_listener(client: NodeClient, task_manager: TaskManager):
         try:
             async with websockets.connect(ws_url) as ws:
                 # Send identification
-                await ws.send(json.dumps({"node_id": client.node_id}))
+                await ws.send(json.dumps({"node_id": client.node_id, "token": client.token}))
                 logger.info(f"Connected to NeuroBroker WebSocket! Ready to receive training tasks.")
                 
                 while True:

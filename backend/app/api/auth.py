@@ -28,7 +28,8 @@ async def register(user_in: UserRegister, db: AsyncSession = Depends(get_db)):
     count_query = select(func.count(User.id))
     count_res = await db.execute(count_query)
     total_users = count_res.scalar() or 0
-    assigned_role = "admin" if total_users == 0 or user_in.role == "admin" else "user"
+    # Public registration must never grant administrative access.
+    assigned_role = "admin" if total_users == 0 else "user"
     
     user = User(
         name=user_in.name,

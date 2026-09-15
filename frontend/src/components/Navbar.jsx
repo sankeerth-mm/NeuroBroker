@@ -46,11 +46,11 @@ export default function Navbar({ activeTab, setActiveTab }) {
     { id: "dashboard", label: "Dashboard", icon: Activity },
     { id: "create_job", label: "Create Training", icon: PlayCircle },
     { id: "training", label: "Live Training", icon: Layers },
-    { id: "admin", label: "Fleet & Nodes", icon: Server },
-    { id: "scheduler", label: "Scheduler Explainer", icon: HelpCircle },
+    { id: "admin", label: "Fleet & Nodes", icon: Server, adminOnly: true },
+    { id: "scheduler", label: "Scheduler Explainer", icon: HelpCircle, adminOnly: true },
     { id: "evaluation", label: "Benchmarks", icon: BarChart3 },
     { id: "reports", label: "Reports", icon: FileText },
-  ];
+  ].filter((item) => !item.adminOnly || user?.role === "admin");
 
   return (
     <nav style={{

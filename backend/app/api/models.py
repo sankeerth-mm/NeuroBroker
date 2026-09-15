@@ -15,7 +15,7 @@ from backend.app.models.user import User
 from backend.app.models.model_pkg import ModelPackage, ModelVersion
 from backend.app.models.job import TrainingJob
 from backend.app.schemas.model_pkg import ModelPackageResponse, ModelVersionResponse
-from backend.app.auth.dependencies import get_current_active_user
+from backend.app.auth.dependencies import get_current_active_user, get_user_or_volunteer
 from backend.app.security.checksum import compute_sha256
 from backend.app.logging.logger import log_event
 
@@ -119,7 +119,7 @@ async def get_model_package(
     return model
 
 @router.get("/{model_id}/download")
-async def download_model_package(model_id: int, db: AsyncSession = Depends(get_db)):
+async def download_model_package(model_id: int, principal = Depends(get_user_or_volunteer), db: AsyncSession = Depends(get_db)):
     query = select(ModelPackage).where(ModelPackage.id == model_id)
     result = await db.execute(query)
     model = result.scalars().first()
@@ -128,7 +128,7 @@ async def download_model_package(model_id: int, db: AsyncSession = Depends(get_d
     return FileResponse(model.file_path, filename=Path(model.file_path).name)
 
 @router.get("/versions/{version_id}/download")
-async def download_model_version_checkpoint(version_id: int, db: AsyncSession = Depends(get_db)):
+async def download_model_version_checkpoint(version_id: int, principal = Depends(get_user_or_volunteer), db: AsyncSession = Depends(get_db)):
     query = select(ModelVersion).where(ModelVersion.id == version_id)
     result = await db.execute(query)
     version = result.scalars().first()
@@ -137,7 +137,7 @@ async def download_model_version_checkpoint(version_id: int, db: AsyncSession = 
     return FileResponse(version.checkpoint_path, filename=Path(version.checkpoint_path).name)
 
 @router.get("/jobs/{job_id}/final")
-async def download_final_job_model(job_id: int, db: AsyncSession = Depends(get_db)):
+async def download_final_job_model(job_id: int, principal = Depends(get_user_or_volunteer), db: AsyncSession = Depends(get_db)):
     """Download the final aggregated global model .pth file for a job."""
     query = (
         select(ModelVersion)
