@@ -52,7 +52,7 @@ export default function Register({ onSwitchToLogin }) {
           }}>
             <Cpu size={26} color="#ffffff" />
           </div>
-          <h1 style={{ fontSize: "1.5rem", fontWeight: 800, color: "#ffffff" }}>
+          <h1 style={{ fontSize: "1.5rem", fontWeight: 800, color: "var(--text-heading)" }}>
             Create Account
           </h1>
           <p style={{ fontSize: "0.85rem", color: "var(--text-muted)", marginTop: "0.25rem" }}>

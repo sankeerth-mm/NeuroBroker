@@ -59,3 +59,36 @@ async def test_node_registration_and_heartbeat():
         nodes_data = list_res.json()
         assert nodes_data["total"] >= 1
         assert any(n["node_id"] == "TEST-NODE-01" for n in nodes_data["nodes"])
+
+@pytest.mark.asyncio
+async def test_pending_tasks_and_task_fail_endpoints():
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        # Register node
+        valid_reg = {
+            "token": settings.VOLUNTEER_REGISTRATION_TOKEN,
+            "node_id": "TEST-NODE-RECONNECT-01",
+            "hostname": "test-box-beta",
+            "cpu_cores": 4,
+            "ram_total_mb": 8192.0
+        }
+        res = await client.post("/api/nodes/register", json=valid_reg)
+        assert res.status_code == 200
+        
+        # Test pending tasks endpoint (should return empty list initially)
+        pending_res = await client.get("/api/nodes/TEST-NODE-RECONNECT-01/tasks/pending")
+        assert pending_res.status_code == 200
+        assert pending_res.json()["tasks"] == []
+
+        # Test heartbeat 404 on unregistered node
+        hb_res = await client.post("/api/nodes/heartbeat", json={"node_id": "NON-EXISTENT-NODE", "cpu_usage": 10.0, "ram_usage_percent": 20.0, "ram_available_mb": 4096.0})
+        assert hb_res.status_code == 404
+
+def test_node_client_url_and_retries(tmp_path):
+    from volunteer_node.node_client import NodeClient
+    nc = NodeClient(server_url="http://192.168.1.100:8000/", token=settings.VOLUNTEER_REGISTRATION_TOKEN, node_id="TEST-NODE-UNIT")
+    assert nc.server_url == "http://192.168.1.100:8000"
+    assert nc.ws_url == "ws://192.168.1.100:8000/ws/volunteer"
+    assert nc._build_url("/api/nodes/register") == "http://192.168.1.100:8000/api/nodes/register"
+    assert nc._build_url("http://custom-domain.com/file.zip") == "http://custom-domain.com/file.zip"
+

@@ -29,16 +29,23 @@ async def heartbeat_loop(client: NodeClient, interval_sec: int):
         await asyncio.sleep(interval_sec)
 
 async def websocket_listener(client: NodeClient, task_manager: TaskManager):
-    """Listens for real-time task assignments from broker server via WebSocket."""
+    """Listens for real-time task assignments from broker server via WebSocket with auto-reconnect."""
     ws_url = client.ws_url
     logger.info(f"Connecting to Broker WebSocket: {ws_url} ...")
     
     while True:
         try:
-            async with websockets.connect(ws_url) as ws:
+            async with websockets.connect(ws_url, ping_interval=20, ping_timeout=20) as ws:
                 # Send identification
                 await ws.send(json.dumps({"node_id": client.node_id, "token": client.token}))
                 logger.info(f"Connected to NeuroBroker WebSocket! Ready to receive training tasks.")
+                
+                # Check for any pending tasks assigned while offline
+                loop = asyncio.get_running_loop()
+                pending_tasks = await loop.run_in_executor(None, client.get_pending_tasks)
+                for task_data in pending_tasks:
+                    logger.info(f"Found pending task ID {task_data.get('task_id')} on reconnect!")
+                    await loop.run_in_executor(None, task_manager.execute_task, task_data)
                 
                 while True:
                     msg_text = await ws.recv()
@@ -49,12 +56,11 @@ async def websocket_listener(client: NodeClient, task_manager: TaskManager):
                     if msg_type == "assign_task":
                         logger.info(f"Received task assignment from broker! Task ID: {data.get('task_id')}")
                         # Run task asynchronously in executor to avoid blocking event loop
-                        loop = asyncio.get_running_loop()
                         await loop.run_in_executor(None, task_manager.execute_task, data)
                     elif msg_type == "ping":
                         await ws.send(json.dumps({"type": "pong"}))
                         
-        except (websockets.ConnectionClosed, ConnectionRefusedError) as e:
+        except (websockets.ConnectionClosed, ConnectionRefusedError, OSError, asyncio.TimeoutError) as e:
             logger.warning(f"WebSocket disconnected ({e}). Reconnecting in 3 seconds...")
             await asyncio.sleep(3)
         except Exception as e:
@@ -64,14 +70,14 @@ async def websocket_listener(client: NodeClient, task_manager: TaskManager):
 def main():
     config.load_from_args()
     
-    print("""
+    print(r"""
 ========================================================================
        _   __                      ____             __             
       / | / /__  __  ___________  / __ )_________  / /_____  _____ 
      /  |/ / _ \/ / / / ___/ __ \/ __  / ___/ __ \/ //_/ _ \/ ___/ 
     / /|  /  __/ /_/ / /  / /_/ / /_/ / /  / /_/ / ,< /  __/ /     
    /_/ |_/\___/\__,_/_/   \____/_____/_/   \____/_/|_|\___/_/      
-                                                                   
+                                                                    
    VOLUNTEER DISTRIBUTED DEEP LEARNING COMPUTE NODE CLIENT
 ========================================================================
     """)
@@ -88,15 +94,22 @@ def main():
     
     client = NodeClient(server_url=config.server_url, token=config.token, node_id=config.node_id)
     
-    # 1. Register with broker
+    # 1. Register with broker (retry in loop until server is reachable)
     logger.info(f"Connecting to Broker Server at {config.server_url}...")
-    try:
-        reg_data = client.register(specs)
-        logger.info(f"Registration SUCCESSFUL! Assigned Node ID: {client.node_id}")
-    except Exception as e:
-        logger.critical(f"Registration failed: {e}")
-        logger.critical("Check that the broker server is running and the token is valid.")
-        sys.exit(1)
+    reg_attempt = 1
+    while True:
+        try:
+            reg_data = client.register(specs)
+            logger.info(f"Registration SUCCESSFUL! Assigned Node ID: {client.node_id}")
+            break
+        except Exception as e:
+            if "Invalid volunteer registration token" in str(e):
+                logger.critical(f"Registration failed due to invalid token: {e}")
+                sys.exit(1)
+            backoff = min(reg_attempt * 2, 10)
+            logger.warning(f"Registration attempt {reg_attempt} failed: {e}. Retrying in {backoff}s...")
+            time.sleep(backoff)
+            reg_attempt += 1
         
     # 2. Run initial micro-benchmark
     try:

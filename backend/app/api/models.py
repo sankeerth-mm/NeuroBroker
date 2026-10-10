@@ -50,16 +50,12 @@ async def upload_model_package(
         with zipfile.ZipFile(saved_path, "r") as z:
             namelist = [n.replace("\\", "/").strip("/") for n in z.namelist()]
             
-            # Check for model.py and train.py anywhere in archive
+
+            # Check for model.py anywhere in archive
             has_model = any(n.endswith("model.py") for n in namelist)
-            has_train = any(n.endswith("train.py") for n in namelist)
-            
             if not has_model:
                 raise HTTPException(status_code=400, detail="model_package.zip is missing required file: model.py")
-            if not has_train:
-                raise HTTPException(status_code=400, detail="model_package.zip is missing required file: train.py")
-            
-            # Try reading config.json
+
             config_entry = next((n for n in z.namelist() if n.endswith("config.json")), None)
             if config_entry:
                 with z.open(config_entry) as cf:

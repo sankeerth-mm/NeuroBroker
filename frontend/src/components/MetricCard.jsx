@@ -21,7 +21,7 @@ export default function MetricCard({ title, value, subtitle, icon: Icon, color =
           <div style={{ fontSize: "0.82rem", color: "var(--text-muted)", fontWeight: 500, marginBottom: "0.4rem" }}>
             {title}
           </div>
-          <div style={{ fontSize: "1.75rem", fontWeight: 700, color: "#ffffff", letterSpacing: "-0.02em" }}>
+          <div style={{ fontSize: "1.75rem", fontWeight: 700, color: "var(--text-heading)", letterSpacing: "-0.02em" }}>
             {value}
           </div>
         </div>

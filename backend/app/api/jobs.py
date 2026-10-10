@@ -15,6 +15,7 @@ from backend.app.models.job import TrainingJob
 from backend.app.models.dataset import Dataset
 from backend.app.models.model_pkg import ModelPackage, ModelVersion
 from backend.app.models.task import TrainingTask
+from backend.app.models.node import VolunteerNode
 from backend.app.schemas.job import (
     JobCreateRequest,
     JobResponse,
@@ -22,20 +23,24 @@ from backend.app.schemas.job import (
     JobTaskResponse,
 )
 from backend.app.schemas.model_pkg import ModelVersionResponse
+from backend.app.schemas.admin import SchedulerDecisionResponse
 from backend.app.auth.dependencies import get_current_active_user, require_volunteer_token, get_user_or_volunteer
 from backend.app.jobs.orchestrator import orchestrator
+from backend.app.models.scheduler import SchedulerDecision
 from backend.app.reports.report_generator import report_generator
 from backend.app.security.checksum import compute_sha256
 from backend.app.ws.user_ws import user_ws_manager
-from backend.app.logging.logger import log_event
+from backend.app.logging.logger import log_event, broker_logger
+
 
 router = APIRouter(prefix="/api/jobs", tags=["Training Jobs"])
 
 async def _get_visible_job(job_id: int, current_user: User, db: AsyncSession) -> TrainingJob:
     job = (await db.execute(select(TrainingJob).where(TrainingJob.id == job_id))).scalars().first()
-    if not job or (current_user.role != "admin" and job.user_id != current_user.id):
+    if not job:
         raise HTTPException(status_code=404, detail="Job not found")
     return job
+
 
 @router.post("", response_model=JobResponse, status_code=status.HTTP_201_CREATED)
 async def create_job(
@@ -55,9 +60,14 @@ async def create_job(
     if not model_pkg:
         raise HTTPException(status_code=404, detail="Model package not found")
         
-    count_res = await db.execute(select(func.count(TrainingJob.id)))
-    job_num = (count_res.scalar() or 0) + 1
-    job_code = f"JOB-{job_num:04d}"
+    max_id_res = await db.execute(select(func.max(TrainingJob.id)))
+    next_num = (max_id_res.scalar() or 0) + 1
+    job_code = f"JOB-{next_num:04d}"
+    
+    while (await db.execute(select(TrainingJob).where(TrainingJob.job_code == job_code))).scalars().first():
+        next_num += 1
+        job_code = f"JOB-{next_num:04d}"
+
     
     job = TrainingJob(
         job_code=job_code,
@@ -94,11 +104,10 @@ async def list_jobs(
     current_user: User = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db)
 ):
-    query = select(TrainingJob).where(TrainingJob.user_id == current_user.id).order_by(desc(TrainingJob.created_at))
-    if current_user.role == "admin":
-        query = select(TrainingJob).order_by(desc(TrainingJob.created_at))
+    query = select(TrainingJob).order_by(desc(TrainingJob.created_at))
     result = await db.execute(query)
     return result.scalars().all()
+
 
 @router.get("/{job_id}", response_model=JobDetailResponse)
 async def get_job_detail(
@@ -120,6 +129,17 @@ async def get_job_detail(
     detail.tasks = [JobTaskResponse.model_validate(t) for t in tasks]
     return detail
 
+@router.get("/{job_id}/decisions", response_model=List[SchedulerDecisionResponse])
+async def get_job_scheduler_decisions(
+    job_id: int,
+    current_user: User = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db)
+):
+    await _get_visible_job(job_id, current_user, db)
+    query = select(SchedulerDecision).where(SchedulerDecision.job_id == job_id).order_by(desc(SchedulerDecision.timestamp))
+    result = await db.execute(query)
+    return result.scalars().all()
+
 @router.post("/{job_id}/start")
 async def start_training_job(
     job_id: int,
@@ -140,6 +160,64 @@ async def stop_training_job(
     await _get_visible_job(job_id, current_user, db)
     await orchestrator.stop_job(job_id)
     return {"message": f"Job {job_id} stopping."}
+
+@router.delete("/{job_id}")
+async def delete_training_job(
+    job_id: int,
+    current_user: User = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db)
+):
+    job = await _get_visible_job(job_id, current_user, db)
+    
+    try:
+        # Signal orchestrator to stop if running and cleanup state
+        if job_id in orchestrator.job_controls:
+            orchestrator.job_controls[job_id]["stop_requested"] = True
+            orchestrator.job_controls.pop(job_id, None)
+        if job_id in orchestrator.running_jobs:
+            task = orchestrator.running_jobs.pop(job_id, None)
+            if task and not task.done():
+                task.cancel()
+        
+        from sqlalchemy import delete, update
+        from backend.app.models.dataset import DatasetPartition
+        from backend.app.models.node import VolunteerNode
+
+        # Clear node references
+        await db.execute(
+            update(VolunteerNode)
+            .where(VolunteerNode.current_job_id == job_id)
+            .values(current_job_id=None, current_task_id=None, status="ONLINE")
+        )
+        
+        # Clean up DB records in dependency order
+        await db.execute(delete(TrainingTask).where(TrainingTask.job_id == job_id))
+        await db.execute(delete(DatasetPartition).where(DatasetPartition.job_id == job_id))
+        await db.execute(delete(ModelVersion).where(ModelVersion.job_id == job_id))
+        await db.execute(delete(SchedulerDecision).where(SchedulerDecision.job_id == job_id))
+        
+        await db.delete(job)
+        await db.commit()
+        
+        # Clean up disk files
+        for target_dir in [
+            settings.CHECKPOINTS_DIR / f"job_{job_id}",
+            settings.PARTITIONS_DIR / f"job_{job_id}",
+            settings.NODE_UPDATES_DIR / f"job_{job_id}",
+            settings.DATASETS_DIR / f"temp_job_{job_id}",
+        ]:
+            if target_dir.exists():
+                shutil.rmtree(target_dir, ignore_errors=True)
+        
+        await user_ws_manager.broadcast("job_status_change", {"job_id": job_id, "status": "DELETED"})
+        return {"message": f"Job {job_id} deleted successfully."}
+    except HTTPException:
+        raise
+    except Exception as e:
+        await db.rollback()
+        broker_logger.error(f"Failed to delete job {job_id}: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to delete job: {str(e)}")
+
 
 @router.post("/{job_id}/pause")
 async def pause_training_job(
@@ -215,6 +293,13 @@ async def report_task_progress(
     task.status = "RUNNING"
     if not task.started_at:
         task.started_at = datetime.utcnow()
+
+    if task.node_id:
+        n_query = select(VolunteerNode).where(VolunteerNode.node_id == task.node_id)
+        node_obj = (await db.execute(n_query)).scalars().first()
+        if node_obj:
+            node_obj.last_heartbeat = datetime.utcnow()
+            node_obj.status = "BUSY"
         
     await db.commit()
     
@@ -285,3 +370,37 @@ async def report_task_complete(
     })
     
     return {"status": "ok", "checksum": checksum}
+
+
+@router.post("/{job_id}/tasks/{task_id}/fail")
+async def report_task_failed(
+    job_id: int,
+    task_id: int,
+    error_message: str = Form(...),
+    volunteer_token: str = Depends(require_volunteer_token),
+    db: AsyncSession = Depends(get_db)
+):
+    query = select(TrainingTask).where(TrainingTask.id == task_id, TrainingTask.job_id == job_id)
+    task = (await db.execute(query)).scalars().first()
+    if not task:
+        raise HTTPException(status_code=404, detail="Task not found")
+        
+    task.status = "FAILED"
+    task.error_message = error_message
+    await db.commit()
+    
+    await log_event(
+        "WARNING", "task",
+        f"Node {task.node_id} reported failure for task {task_id}: {error_message}",
+        job_id=job_id, node_id=task.node_id, db_session=db
+    )
+    
+    await user_ws_manager.broadcast("task_failed", {
+        "job_id": job_id,
+        "task_id": task_id,
+        "node_id": task.node_id,
+        "error_message": error_message
+    })
+    
+    return {"status": "ok"}
+

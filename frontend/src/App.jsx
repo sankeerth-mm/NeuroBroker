@@ -1,6 +1,8 @@
 import React, { useState } from "react";
 import { AuthProvider, useAuth } from "./context/AuthContext";
-import Navbar from "./components/Navbar";
+import { ThemeProvider } from "./context/ThemeContext";
+import Sidebar from "./components/Sidebar";
+import TopHeader from "./components/TopHeader";
 import Login from "./pages/Login";
 import Register from "./pages/Register";
 import UserDashboard from "./pages/UserDashboard";
@@ -37,32 +39,38 @@ function MainApp() {
   }
 
   return (
-    <div style={{ minHeight: "100vh", display: "flex", flexDirection: "column" }}>
-      <Navbar activeTab={activeTab} setActiveTab={setActiveTab} />
+    <div style={{ display: "flex", minHeight: "100vh", background: "var(--bg-primary)" }}>
+      <Sidebar activeTab={activeTab} setActiveTab={setActiveTab} user={user} />
       
-      <main style={{ flex: 1, padding: "1.5rem 0 3rem" }}>
-        {activeTab === "dashboard" && (
-          <UserDashboard setActiveTab={setActiveTab} setSelectedJobId={setSelectedJobId} />
-        )}
-        {activeTab === "create_job" && (
-          <CreateJob setActiveTab={setActiveTab} setSelectedJobId={setSelectedJobId} />
-        )}
-        {activeTab === "training" && (
-          <TrainingView selectedJobId={selectedJobId} setSelectedJobId={setSelectedJobId} setActiveTab={setActiveTab} />
-        )}
-        {activeTab === "admin" && <AdminDashboard />}
-        {activeTab === "scheduler" && <SchedulerExplainer />}
-        {activeTab === "evaluation" && <EvaluationView />}
-        {activeTab === "reports" && <ReportsView />}
-      </main>
+      <div style={{ flex: 1, display: "flex", flexDirection: "column", minWidth: 0 }}>
+        <TopHeader />
+        
+        <main style={{ flex: 1, padding: "1.75rem 2.25rem 3rem 2.25rem", overflowY: "auto" }}>
+          {activeTab === "dashboard" && (
+            <UserDashboard setActiveTab={setActiveTab} setSelectedJobId={setSelectedJobId} />
+          )}
+          {activeTab === "create_job" && (
+            <CreateJob setActiveTab={setActiveTab} setSelectedJobId={setSelectedJobId} />
+          )}
+          {activeTab === "training" && (
+            <TrainingView selectedJobId={selectedJobId} setSelectedJobId={setSelectedJobId} setActiveTab={setActiveTab} />
+          )}
+          {activeTab === "admin" && <AdminDashboard />}
+          {activeTab === "scheduler" && <SchedulerExplainer />}
+          {activeTab === "evaluation" && <EvaluationView />}
+          {activeTab === "reports" && <ReportsView />}
+        </main>
+      </div>
     </div>
   );
 }
 
 export default function App() {
   return (
-    <AuthProvider>
-      <MainApp />
-    </AuthProvider>
+    <ThemeProvider>
+      <AuthProvider>
+        <MainApp />
+      </AuthProvider>
+    </ThemeProvider>
   );
 }

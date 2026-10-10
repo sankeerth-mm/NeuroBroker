@@ -44,24 +44,54 @@ class LocalTrainer:
         final_loss = 0.0
         final_acc = 0.0
         
+        last_progress_time = time.time()
         for epoch in range(1, local_epochs + 1):
             epoch_loss = 0.0
             correct = 0
             total_samples = 0
+            total_batches = max(1, len(dataloader))
             
             for batch_idx, (data, target) in enumerate(dataloader):
-                data, target = data.to(device), target.to(device)
-                optimizer.zero_grad()
+                data = data.to(device).float()
+                target = target.to(device)
+                if target.ndim > 1 and target.shape[1] == 1:
+                    target = target.squeeze(1)
                 
+                optimizer.zero_grad(set_to_none=True)
                 output = model(data)
-                loss = criterion(output, target)
+                
+                # Check output shape: binary vs multiclass
+                if output.ndim == 1 or (output.ndim == 2 and output.shape[1] == 1):
+                    output_flat = output.view(-1)
+                    target_float = target.float().view(-1)
+                    bce_criterion = nn.BCEWithLogitsLoss()
+                    loss = bce_criterion(output_flat, target_float)
+                    pred = (torch.sigmoid(output_flat) > 0.5).long()
+                    batch_correct = pred.eq(target.long().view_as(pred)).sum().item()
+                else:
+                    target_long = target.long()
+                    loss = criterion(output, target_long)
+                    pred = output.argmax(dim=1, keepdim=True)
+                    batch_correct = pred.eq(target_long.view_as(pred)).sum().item()
+                
+                if torch.isnan(loss) or torch.isinf(loss):
+                    logger.warning(f"  [Epoch {epoch} | Batch {batch_idx}] NaN or Inf loss detected, skipping step.")
+                    continue
+                
                 loss.backward()
                 optimizer.step()
                 
                 epoch_loss += loss.item() * data.size(0)
-                pred = output.argmax(dim=1, keepdim=True)
-                correct += pred.eq(target.view_as(pred)).sum().item()
+                correct += batch_correct
                 total_samples += data.size(0)
+                
+                now = time.time()
+                if progress_callback and (now - last_progress_time >= 5.0):
+                    cur_loss = epoch_loss / max(1, total_samples)
+                    cur_acc = (correct / max(1, total_samples)) * 100.0
+                    intra_pct = (((epoch - 1) + (batch_idx + 1) / total_batches) / local_epochs) * 100.0
+                    progress_callback(epoch, cur_loss, cur_acc, min(99.0, intra_pct))
+                    last_progress_time = now
                 
             avg_loss = epoch_loss / max(1, total_samples)
             acc = (correct / max(1, total_samples)) * 100.0
@@ -79,6 +109,11 @@ class LocalTrainer:
         
         # Move state dict to CPU before returning or saving
         cpu_state_dict = {k: v.cpu().clone() for k, v in model.state_dict().items()}
+        
+        # Clean device memory if applicable
+        if device.type in ("cuda", "mps"):
+            if hasattr(torch, "cuda") and torch.cuda.is_available():
+                torch.cuda.empty_cache()
         
         if save_path:
             save_path.parent.mkdir(parents=True, exist_ok=True)

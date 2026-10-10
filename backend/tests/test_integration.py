@@ -60,7 +60,18 @@ async def test_full_end_to_end_distributed_training_workflow():
         
         # 4. Upload Dataset
         dataset_zip = BASE_DIR / "example_datasets" / "mnist_sample_dataset.zip"
+        if not dataset_zip.exists():
+            from PIL import Image
+            dataset_zip.parent.mkdir(parents=True, exist_ok=True)
+            with zipfile.ZipFile(dataset_zip, "w") as z:
+                for cls_name in ["0", "1"]:
+                    for idx in range(5):
+                        img = Image.new("L", (28, 28), color=128)
+                        buf = io.BytesIO()
+                        img.save(buf, format="PNG")
+                        z.writestr(f"{cls_name}/img_{idx}.png", buf.getvalue())
         assert dataset_zip.exists()
+
         
         with open(dataset_zip, "rb") as df:
             d_res = await client.post(

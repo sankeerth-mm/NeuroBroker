@@ -79,6 +79,7 @@ app = FastAPI(
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[origin.strip() for origin in settings.CORS_ORIGINS.split(",") if origin.strip()],
+    allow_origin_regex=r"https?://.*",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -128,6 +129,39 @@ async def websocket_volunteer_endpoint(websocket: WebSocket):
             return
             
         await volunteer_ws_manager.connect(node_id, websocket)
+
+        # Sync node status and check pending assigned tasks
+        async with AsyncSessionLocal() as db:
+            n_res = await db.execute(select(VolunteerNode).where(VolunteerNode.node_id == node_id))
+            node_rec = n_res.scalars().first()
+            if node_rec:
+                node_rec.last_heartbeat = datetime.utcnow()
+                if node_rec.status == "OFFLINE":
+                    node_rec.status = "BUSY" if node_rec.current_task_id else "ONLINE"
+                await db.commit()
+
+            # Find any assigned training tasks for this node
+            from backend.app.models.task import TrainingTask
+            from backend.app.models.job import TrainingJob
+            t_res = await db.execute(
+                select(TrainingTask, TrainingJob)
+                .join(TrainingJob, TrainingJob.id == TrainingTask.job_id)
+                .where(TrainingTask.node_id == node_id, TrainingTask.status == "ASSIGNED")
+            )
+            pending_rows = t_res.all()
+            for task_obj, job_obj in pending_rows:
+                task_payload = {
+                    "task_id": task_obj.id,
+                    "job_id": job_obj.id,
+                    "round_number": task_obj.round_number,
+                    "model_download_url": f"/api/models/{job_obj.model_package_id}/download",
+                    "checkpoint_download_url": f"/api/jobs/{job_obj.id}/checkpoints/latest",
+                    "partition_download_url": f"/api/datasets/partitions/{task_obj.partition_id}/download",
+                    "local_epochs": job_obj.local_epochs,
+                    "batch_size": job_obj.batch_size,
+                    "learning_rate": job_obj.learning_rate,
+                }
+                await volunteer_ws_manager.send_to_node(node_id, "assign_task", task_payload)
         
         while True:
             message = await websocket.receive_json()

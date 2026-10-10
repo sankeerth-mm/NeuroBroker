@@ -88,7 +88,7 @@ export default function Navbar({ activeTab, setActiveTab }) {
             <Cpu size={22} color="#ffffff" />
           </div>
           <div>
-            <div style={{ fontSize: "1.25rem", fontWeight: 800, letterSpacing: "-0.02em", color: "#f8fafc" }}>
+            <div style={{ fontSize: "1.25rem", fontWeight: 800, letterSpacing: "-0.02em", color: "var(--text-heading)" }}>
               Neuro<span style={{ color: "var(--primary)" }}>Broker</span>
             </div>
             <div style={{ fontSize: "0.68rem", color: "var(--text-muted)", letterSpacing: "0.05em", textTransform: "uppercase" }}>

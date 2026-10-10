@@ -31,9 +31,34 @@ class StratifiedPartitioner:
         total_w = sum(partition_weights)
         norm_weights = [w / total_w for w in partition_weights]
         
+        # First, unwrap single top-level directory wrapper if present (e.g., dataset_archive/dataset_name/class_dirs...)
+        root_dir = extracted_dataset_dir
+        while True:
+            children = [c for c in root_dir.iterdir() if not c.name.startswith(".")]
+            if len(children) == 1 and children[0].is_dir():
+                root_dir = children[0]
+            else:
+                break
+
+        # Check if dataset contains multi-sample .npy feature/label files
+        npy_files = list(root_dir.rglob("*.npy"))
+        feature_files = [f for f in npy_files if "feature" in f.name.lower()]
+        label_files = [f for f in npy_files if "label" in f.name.lower()]
+        if (feature_files and label_files) or any(f.parent == root_dir for f in npy_files if not f.name.startswith(".")):
+            npy_manifests = StratifiedPartitioner.partition_npy_dataset(
+                extracted_dataset_dir=root_dir,
+                job_id=job_id,
+                partition_weights=partition_weights,
+                output_base_dir=output_base_dir
+            )
+            if npy_manifests:
+                return npy_manifests
+
+
+
         # Discover classes and files
         class_files: Dict[str, List[Path]] = defaultdict(list)
-        for entry in extracted_dataset_dir.iterdir():
+        for entry in root_dir.iterdir():
             if entry.is_dir() and not entry.name.startswith("."):
                 class_name = entry.name
                 for file_path in entry.rglob("*"):
@@ -124,6 +149,145 @@ class StratifiedPartitioner:
                 "class_distribution": class_dist,
             })
             
+        return partition_manifests
+
+    @staticmethod
+    def partition_npy_dataset(
+        extracted_dataset_dir: Path,
+        job_id: int,
+        partition_weights: List[float],
+        output_base_dir: Path = settings.PARTITIONS_DIR
+    ) -> List[Dict[str, Any]]:
+        import numpy as np
+
+        K = len(partition_weights)
+        if K == 0:
+            return []
+
+        total_w = sum(partition_weights)
+        norm_weights = [w / total_w for w in partition_weights]
+
+        root_dir = extracted_dataset_dir
+        while True:
+            children = [c for c in root_dir.iterdir() if not c.name.startswith(".")]
+            if len(children) == 1 and children[0].is_dir():
+                root_dir = children[0]
+            else:
+                break
+
+        npy_files = list(root_dir.rglob("*.npy"))
+        feature_files = sorted([f for f in npy_files if "feature" in f.name.lower()])
+        label_files = sorted([f for f in npy_files if "label" in f.name.lower()])
+
+        all_features = []
+        all_labels = []
+
+        if feature_files and label_files:
+            for f_file in feature_files:
+                suffix = ""
+                for s in ["train", "test", "val", "validation"]:
+                    if s in f_file.name.lower():
+                        suffix = s
+                        break
+                matching_lbl = None
+                for l_file in label_files:
+                    if suffix and suffix in l_file.name.lower():
+                        matching_lbl = l_file
+                        break
+                if not matching_lbl and label_files:
+                    matching_lbl = label_files[0]
+
+                if matching_lbl:
+                    try:
+                        f_data = np.load(f_file)
+                        l_data = np.load(matching_lbl)
+                        if len(f_data) == len(l_data):
+                            all_features.append(f_data)
+                            all_labels.append(l_data)
+                    except Exception:
+                        pass
+        elif npy_files:
+            for f_file in npy_files:
+                if "label" in f_file.name.lower():
+                    continue
+                try:
+                    data = np.load(f_file)
+                    if data.ndim >= 2:
+                        all_features.append(data)
+                        all_labels.append(np.zeros(len(data), dtype=np.int64))
+                except Exception:
+                    pass
+
+        if not all_features:
+            return []
+
+        X = np.concatenate(all_features, axis=0)
+        y = np.concatenate(all_labels, axis=0)
+        total_samples = len(y)
+
+        class_indices = defaultdict(list)
+        for idx, lbl in enumerate(y):
+            class_indices[int(lbl)].append(idx)
+
+        partition_indices: List[List[int]] = [[] for _ in range(K)]
+
+        for cls, idxs in class_indices.items():
+            shuffled = list(idxs)
+            random.shuffle(shuffled)
+            n_cls = len(shuffled)
+            start = 0
+            for k in range(K):
+                if k == K - 1:
+                    allocated = shuffled[start:]
+                else:
+                    count = int(round(norm_weights[k] * n_cls))
+                    end = min(start + count, n_cls)
+                    allocated = shuffled[start:end]
+                    start = end
+                partition_indices[k].extend(allocated)
+
+        partition_manifests = []
+        job_partition_dir = output_base_dir / f"job_{job_id}"
+        job_partition_dir.mkdir(parents=True, exist_ok=True)
+
+        for k in range(K):
+            idxs = partition_indices[k]
+            if len(idxs) == 0 and total_samples >= K:
+                largest_k = max(range(K), key=lambda i: len(partition_indices[i]))
+                if len(partition_indices[largest_k]) > 1:
+                    idxs = [partition_indices[largest_k].pop()]
+                    partition_indices[k] = idxs
+
+            X_k = X[idxs] if len(idxs) > 0 else X[:0]
+            y_k = y[idxs] if len(idxs) > 0 else y[:0]
+
+            partition_zip_path = job_partition_dir / f"partition_{k}.zip"
+
+            temp_feat_file = job_partition_dir / f"temp_features_{k}.npy"
+            temp_lbl_file = job_partition_dir / f"temp_labels_{k}.npy"
+            np.save(temp_feat_file, X_k)
+            np.save(temp_lbl_file, y_k)
+
+            class_dist = defaultdict(int)
+            for lbl in y_k:
+                class_dist[str(int(lbl))] += 1
+
+            with zipfile.ZipFile(partition_zip_path, "w", zipfile.ZIP_DEFLATED) as pzip:
+                pzip.write(temp_feat_file, "features_train.npy")
+                pzip.write(temp_lbl_file, "labels_train.npy")
+
+            temp_feat_file.unlink(missing_ok=True)
+            temp_lbl_file.unlink(missing_ok=True)
+
+            checksum = compute_sha256(partition_zip_path)
+            partition_manifests.append({
+                "partition_index": k,
+                "file_path": str(partition_zip_path),
+                "checksum_sha256": checksum,
+                "sample_count": len(idxs),
+                "class_distribution": dict(class_dist),
+            })
+
         return partition_manifests
 
     @staticmethod

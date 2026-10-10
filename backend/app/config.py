@@ -45,7 +45,7 @@ class Settings(BaseSettings):
     
     # Node Heartbeat & Telemetry Settings
     HEARTBEAT_INTERVAL_SECONDS: int = 5
-    HEARTBEAT_TIMEOUT_SECONDS: int = 15
+    HEARTBEAT_TIMEOUT_SECONDS: int = 300
     MAX_NODE_RETRY_COUNT: int = 3
     
     # Scheduler Weights & Configuration

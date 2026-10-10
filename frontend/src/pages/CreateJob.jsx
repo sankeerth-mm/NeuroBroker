@@ -153,7 +153,7 @@ export default function CreateJob({ setActiveTab, setSelectedJobId }) {
               <PlayCircle size={20} color="#ffffff" />
             </div>
             <div>
-              <h1 style={{ fontSize: "1.35rem", fontWeight: 700, color: "#ffffff" }}>
+              <h1 style={{ fontSize: "1.35rem", fontWeight: 700, color: "var(--text-heading)" }}>
                 Configure & Launch Training Job
               </h1>
               <p style={{ fontSize: "0.82rem", color: "var(--text-muted)", marginTop: "0.15rem" }}>

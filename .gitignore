@@ -69,3 +69,7 @@ Thumbs.db
 .idea/
 *.swp
 *.swo
+
+# Large zip archives & extracted folders
+*.zip
+extracted_*/

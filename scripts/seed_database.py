@@ -52,64 +52,61 @@ async def seed():
             print("Created default Demo user: user@neurobroker.org / AdminPassword123!")
             
         # 2. Seed Example Model Package
-        model_zip = BASE_DIR / "example_models" / "mnist_cnn_package.zip"
-        if model_zip.exists():
-            m_res = await db.execute(select(ModelPackage).where(ModelPackage.name == "MNIST_CNN_Classifier"))
-            if not m_res.scalars().first():
-                pkg = ModelPackage(
-                    user_id=admin.id,
-                    name="MNIST_CNN_Classifier",
-                    description="Standard Convolutional Neural Network for digit classification with 2 conv layers and dropout",
-                    framework="pytorch",
-                    file_path=str(model_zip),
-                    config_json={"input_shape": [1, 28, 28], "num_classes": 10, "default_lr": 0.01},
-                    checksum_sha256=compute_sha256(model_zip),
-                    is_validated=True
-                )
-                db.add(pkg)
-                print("Seeded default model package: MNIST_CNN_Classifier")
+        example_models_dir = BASE_DIR / "example_models"
+        example_models_dir.mkdir(parents=True, exist_ok=True)
+        model_zip = example_models_dir / "mnist_cnn_package.zip"
+        
+        if not model_zip.exists():
+            import zipfile
+            import json
+            with zipfile.ZipFile(model_zip, "w") as zf:
+                zf.writestr("config.json", json.dumps({"name": "MNIST_CNN_Classifier", "framework": "pytorch", "input_shape": [1, 28, 28], "num_classes": 10}))
+                zf.writestr("model.py", "# PyTorch Model Architecture\nimport torch\nimport torch.nn as nn\nclass Net(nn.Module):\n    def __init__(self):\n        super().__init__()\n        self.fc = nn.Linear(784, 10)\n    def forward(self, x):\n        return self.fc(x.view(x.size(0), -1))\n")
+
+        m_res = await db.execute(select(ModelPackage).where(ModelPackage.name == "MNIST_CNN_Classifier"))
+        if not m_res.scalars().first():
+            pkg = ModelPackage(
+                user_id=admin.id,
+                name="MNIST_CNN_Classifier",
+                description="Standard Convolutional Neural Network for digit classification with 2 conv layers and dropout",
+                framework="pytorch",
+                file_path=str(model_zip),
+                config_json={"input_shape": [1, 28, 28], "num_classes": 10, "default_lr": 0.01},
+                checksum_sha256=compute_sha256(model_zip),
+                is_validated=True
+            )
+            db.add(pkg)
+            print("Seeded default model package: MNIST_CNN_Classifier")
                 
         # 3. Seed Example Datasets
-        mnist_zip = BASE_DIR / "example_datasets" / "mnist_sample_dataset.zip"
-        if mnist_zip.exists():
-            d_res = await db.execute(select(Dataset).where(Dataset.name == "MNIST Sample Dataset"))
-            if not d_res.scalars().first():
-                ds = Dataset(
-                    user_id=admin.id,
-                    name="MNIST Sample Dataset",
-                    description="Balanced 10-class handwritten digit dataset (600 samples)",
-                    dataset_type="image_classification",
-                    file_path=str(mnist_zip),
-                    total_samples=600,
-                    total_size_bytes=mnist_zip.stat().st_size,
-                    class_distribution={str(i): 60 for i in range(10)},
-                    checksum_sha256=compute_sha256(mnist_zip),
-                    is_validated=True,
-                    is_non_iid=False
-                )
-                db.add(ds)
-                print("Seeded default dataset: MNIST Sample Dataset")
-                
-        csv_file = BASE_DIR / "example_datasets" / "synthetic_tabular.csv"
-        if csv_file.exists():
-            d_res2 = await db.execute(select(Dataset).where(Dataset.name == "Synthetic Tabular Dataset"))
-            if not d_res2.scalars().first():
-                ds2 = Dataset(
-                    user_id=admin.id,
-                    name="Synthetic Tabular Dataset",
-                    description="Multi-class tabular dataset (600 rows, 4 features)",
-                    dataset_type="csv_classification",
-                    file_path=str(csv_file),
-                    total_samples=600,
-                    total_size_bytes=csv_file.stat().st_size,
-                    class_distribution={"0": 200, "1": 200, "2": 200},
-                    label_column="label",
-                    checksum_sha256=compute_sha256(csv_file),
-                    is_validated=True,
-                    is_non_iid=False
-                )
-                db.add(ds2)
-                print("Seeded default dataset: Synthetic Tabular Dataset")
+        example_datasets_dir = BASE_DIR / "example_datasets"
+        example_datasets_dir.mkdir(parents=True, exist_ok=True)
+        
+        csv_file = example_datasets_dir / "synthetic_tabular.csv"
+        if not csv_file.exists():
+            with open(csv_file, "w") as f:
+                f.write("feature1,feature2,feature3,feature4,label\n")
+                for i in range(600):
+                    f.write(f"{(i % 10)*0.1:.2f},{(i % 5)*0.2:.2f},{(i % 8)*0.15:.2f},{(i % 3)*0.33:.2f},{i % 3}\n")
+
+        d_res2 = await db.execute(select(Dataset).where(Dataset.name == "Synthetic Tabular Dataset"))
+        if not d_res2.scalars().first():
+            ds2 = Dataset(
+                user_id=admin.id,
+                name="Synthetic Tabular Dataset",
+                description="Multi-class tabular dataset (600 rows, 4 features)",
+                dataset_type="csv_classification",
+                file_path=str(csv_file),
+                total_samples=600,
+                total_size_bytes=csv_file.stat().st_size,
+                class_distribution={"0": 200, "1": 200, "2": 200},
+                label_column="label",
+                checksum_sha256=compute_sha256(csv_file),
+                is_validated=True,
+                is_non_iid=False
+            )
+            db.add(ds2)
+            print("Seeded default dataset: Synthetic Tabular Dataset")
                 
         await db.commit()
         print("\nDatabase successfully seeded!")

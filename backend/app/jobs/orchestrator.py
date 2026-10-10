@@ -54,16 +54,50 @@ class TrainingOrchestrator:
     async def stop_job(self, job_id: int):
         if job_id in self.job_controls:
             self.job_controls[job_id]["stop_requested"] = True
-            broker_logger.info(f"Stop signal sent for Job {job_id}")
+            
+        async with AsyncSessionLocal() as db:
+            query = select(TrainingJob).where(TrainingJob.id == job_id)
+            res = await db.execute(query)
+            j = res.scalars().first()
+            if j and j.status not in ("COMPLETED", "CANCELLED", "FAILED"):
+                j.status = "CANCELLED"
+                j.completed_at = datetime.utcnow()
+                await db.commit()
+                await user_ws_manager.broadcast("job_status_change", {"job_id": job_id, "status": "CANCELLED"})
+                await log_event("INFO", "orchestrator", f"Job {j.job_code} stopped by user.", job_id=job_id, db_session=db)
+                
+        if job_id in self.running_jobs and not self.running_jobs[job_id].done():
+            self.running_jobs[job_id].cancel()
 
     async def pause_job(self, job_id: int):
         if job_id in self.job_controls:
             self.job_controls[job_id]["pause_requested"] = True
+            
+        async with AsyncSessionLocal() as db:
+            query = select(TrainingJob).where(TrainingJob.id == job_id)
+            res = await db.execute(query)
+            j = res.scalars().first()
+            if j and j.status not in ("COMPLETED", "CANCELLED", "FAILED", "PAUSED"):
+                j.status = "PAUSED"
+                await db.commit()
+                await user_ws_manager.broadcast("job_status_change", {"job_id": job_id, "status": "PAUSED"})
+                await log_event("INFO", "orchestrator", f"Job {j.job_code} paused by user.", job_id=job_id, db_session=db)
 
     async def resume_job(self, job_id: int):
         if job_id in self.job_controls:
             self.job_controls[job_id]["pause_requested"] = False
-        else:
+            
+        async with AsyncSessionLocal() as db:
+            query = select(TrainingJob).where(TrainingJob.id == job_id)
+            res = await db.execute(query)
+            j = res.scalars().first()
+            if j and j.status == "PAUSED":
+                j.status = "TRAINING"
+                await db.commit()
+                await user_ws_manager.broadcast("job_status_change", {"job_id": job_id, "status": "TRAINING"})
+                await log_event("INFO", "orchestrator", f"Job {j.job_code} resumed by user.", job_id=job_id, db_session=db)
+                
+        if job_id not in self.running_jobs or self.running_jobs[job_id].done():
             await self.start_job(job_id)
 
     async def _run_job_lifecycle(self, job_id: int):
@@ -320,12 +354,18 @@ class TrainingOrchestrator:
                     "batch_size": job.batch_size,
                     "learning_rate": job.learning_rate,
                 }
-                # Dispatch message
-                await volunteer_ws_manager.send_to_node(node.node_id, "assign_task", task_payload)
+                # Dispatch message with retry
+                sent = await volunteer_ws_manager.send_to_node(node.node_id, "assign_task", task_payload)
+                if not sent:
+                    for retry_idx in range(2):
+                        await asyncio.sleep(1)
+                        if await volunteer_ws_manager.send_to_node(node.node_id, "assign_task", task_payload):
+                            break
                 
-            # Wait for all nodes to complete or handle timeout
-            max_wait_seconds = 180
+            # Wait for all nodes to complete or handle timeout and task recovery
+            max_wait_seconds = 1800
             start_wait = datetime.utcnow()
+            task_reassignment_counts: Dict[int, int] = {}
             
             while True:
                 await asyncio.sleep(2)
@@ -335,6 +375,42 @@ class TrainingOrchestrator:
                     t_query = select(TrainingTask).where(TrainingTask.job_id == job_id, TrainingTask.round_number == round_num)
                     t_res = await db.execute(t_query)
                     active_tasks = t_res.scalars().all()
+                    
+                    # Check for failed or timed-out tasks that can be reassigned to online nodes
+                    for t in active_tasks:
+                        if t.status in ("FAILED", "TIMEOUT") and task_reassignment_counts.get(t.id, 0) < 2:
+                            # Search for an available online/idle node
+                            avail_query = select(VolunteerNode).where(VolunteerNode.status.in_(["ONLINE", "IDLE"]))
+                            avail_nodes = (await db.execute(avail_query)).scalars().all()
+                            
+                            if avail_nodes:
+                                backup_node = avail_nodes[0]
+                                task_reassignment_counts[t.id] = task_reassignment_counts.get(t.id, 0) + 1
+                                t.node_id = backup_node.node_id
+                                t.status = "ASSIGNED"
+                                t.error_message = None
+                                t.started_at = None
+                                backup_node.status = "BUSY"
+                                backup_node.current_job_id = job_id
+                                await db.commit()
+                                
+                                reassign_payload = {
+                                    "task_id": t.id,
+                                    "job_id": job_id,
+                                    "round_number": round_num,
+                                    "model_download_url": f"/api/models/{model_pkg.id}/download",
+                                    "checkpoint_download_url": f"/api/jobs/{job_id}/checkpoints/latest",
+                                    "partition_download_url": f"/api/datasets/partitions/{t.partition_id}/download",
+                                    "local_epochs": job.local_epochs,
+                                    "batch_size": job.batch_size,
+                                    "learning_rate": job.learning_rate,
+                                }
+                                await volunteer_ws_manager.send_to_node(backup_node.node_id, "assign_task", reassign_payload)
+                                await log_event(
+                                    "WARNING", "fault_tolerance",
+                                    f"Task {t.id} failed/timed out. Automatically reassigned to online node {backup_node.node_id} (attempt {task_reassignment_counts[t.id]}).",
+                                    job_id=job_id, node_id=backup_node.node_id, db_session=db
+                                )
                     
                     all_done = all(t.status in ("COMPLETED", "FAILED", "TIMEOUT") for t in active_tasks)
                     
@@ -370,6 +446,7 @@ class TrainingOrchestrator:
                     await db.commit()
                     await user_ws_manager.broadcast("job_status_change", {"job_id": job.id, "status": "FAILED"})
                     return
+
                     
                 # Collect verified state_dicts from completed tasks
                 node_updates = []

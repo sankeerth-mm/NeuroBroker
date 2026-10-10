@@ -71,7 +71,7 @@ export default function Login({ onSwitchToRegister }) {
           }}>
             <Cpu size={28} color="#ffffff" />
           </div>
-          <h1 style={{ fontSize: "1.6rem", fontWeight: 800, color: "#ffffff" }}>
+          <h1 style={{ fontSize: "1.6rem", fontWeight: 800, color: "var(--text-heading)" }}>
             Neuro<span style={{ color: "var(--primary)" }}>Broker</span>
           </h1>
           <p style={{ fontSize: "0.85rem", color: "var(--text-muted)", marginTop: "0.3rem" }}>

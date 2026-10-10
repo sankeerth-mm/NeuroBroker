@@ -1,6 +1,7 @@
+import threading
 import shutil
 from pathlib import Path
-from typing import Dict, Any
+from typing import Dict, Any, Set
 import torch
 from volunteer_node.logger import logger
 from volunteer_node.node_client import NodeClient
@@ -14,6 +15,8 @@ class TaskManager:
         self.client = client
         self.work_dir = work_dir
         self.work_dir.mkdir(parents=True, exist_ok=True)
+        self.active_tasks: Set[int] = set()
+        self._lock = threading.Lock()
 
     def execute_task(self, task_data: Dict[str, Any]):
         """
@@ -25,6 +28,12 @@ class TaskManager:
         local_epochs = task_data.get("local_epochs", 2)
         batch_size = task_data.get("batch_size", 32)
         learning_rate = task_data.get("learning_rate", 0.001)
+
+        with self._lock:
+            if task_id in self.active_tasks:
+                logger.info(f"Task ID {task_id} is already executing. Skipping duplicate assignment.")
+                return
+            self.active_tasks.add(task_id)
         
         task_dir = self.work_dir / f"job_{job_id}_round_{round_num}_task_{task_id}"
         task_dir.mkdir(parents=True, exist_ok=True)
@@ -44,7 +53,7 @@ class TaskManager:
             
             # 3. Download Global Model Checkpoint (if available)
             global_sd = None
-            if "checkpoint_download_url" in task_data:
+            if "checkpoint_download_url" in task_data and task_data["checkpoint_download_url"]:
                 try:
                     ckpt_path = task_dir / "global_model.pth"
                     self.client.download_file(task_data["checkpoint_download_url"], ckpt_path)
@@ -91,6 +100,10 @@ class TaskManager:
             
         except Exception as e:
             logger.error(f"Task {task_id} failed: {e}", exc_info=True)
+            self.client.report_task_failure(job_id, task_id, str(e))
         finally:
+            with self._lock:
+                self.active_tasks.discard(task_id)
             # Cleanup task directory
             shutil.rmtree(task_dir, ignore_errors=True)
+

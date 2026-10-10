@@ -71,7 +71,7 @@ export default function AdminDashboard() {
       {/* Admin Title */}
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
         <div>
-          <h1 style={{ fontSize: "1.5rem", fontWeight: 800, color: "#ffffff" }}>
+          <h1 style={{ fontSize: "1.5rem", fontWeight: 800, color: "var(--text-heading)" }}>
             Admin Cluster & Volunteer Fleet Management
           </h1>
           <p style={{ fontSize: "0.85rem", color: "var(--text-muted)", marginTop: "0.2rem" }}>
@@ -118,14 +118,14 @@ export default function AdminDashboard() {
 
       {/* Volunteer Nodes Hardware Fleet Grid */}
       <div>
-        <h2 style={{ fontSize: "1.15rem", fontWeight: 700, color: "#ffffff", marginBottom: "1rem", display: "flex", alignItems: "center", gap: "0.5rem" }}>
+        <h2 style={{ fontSize: "1.15rem", fontWeight: 700, color: "var(--text-heading)", marginBottom: "1rem", display: "flex", alignItems: "center", gap: "0.5rem" }}>
           <Server size={18} color="var(--primary)" />
           Connected Volunteer Worker Fleet
         </h2>
 
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(340px, 1fr))", gap: "1.25rem" }}>
           {nodes.map((node) => {
-            const isOnline = ["ONLINE", "BUSY"].includes(node.status);
+            const isOnline = ["ONLINE", "BUSY", "IDLE"].includes(node.status);
             const isUnhealthy = node.status === "UNHEALTHY";
             
             return (
@@ -140,7 +140,7 @@ export default function AdminDashboard() {
                 {/* Node Title & Status Pill */}
                 <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "0.75rem" }}>
                   <div>
-                    <span style={{ fontSize: "1.1rem", fontWeight: 700, color: "#ffffff" }}>{node.node_id}</span>
+                    <span style={{ fontSize: "1.1rem", fontWeight: 700, color: "var(--text-heading)" }}>{node.node_id}</span>
                     <div style={{ fontSize: "0.75rem", color: "var(--text-dim)" }}>{node.hostname || "volunteer-node"}</div>
                   </div>
                   <span className={`status-pill ${isUnhealthy ? "status-unhealthy" : node.status === "BUSY" ? "status-busy" : isOnline ? "status-online" : "status-offline"}`}>
@@ -199,7 +199,7 @@ export default function AdminDashboard() {
       {/* Real-Time System Log Explorer */}
       <div className="glass-panel" style={{ padding: "1.5rem" }}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "1.25rem" }}>
-          <h2 style={{ fontSize: "1.1rem", fontWeight: 700, color: "#ffffff", display: "flex", alignItems: "center", gap: "0.5rem" }}>
+          <h2 style={{ fontSize: "1.1rem", fontWeight: 700, color: "var(--text-heading)", display: "flex", alignItems: "center", gap: "0.5rem" }}>
             <Terminal size={18} color="var(--accent-cyan)" />
             Broker Server & Cluster System Logs
           </h2>

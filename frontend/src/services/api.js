@@ -1,6 +1,4 @@
-const host = typeof window !== "undefined" && window.location.hostname ? window.location.hostname : "127.0.0.1";
-const protocol = typeof window !== "undefined" && window.location.protocol === "https:" ? "https" : "http";
-const API_BASE = `${protocol}://${host}:8000`;
+const API_BASE = "";
 
 function getHeaders(isJson = true) {
   const token = localStorage.getItem("nb_token");
@@ -151,6 +149,20 @@ export const api = {
     return `${API_BASE}/api/models/jobs/${jobId}/final`;
   },
 
+  getLatestCheckpointDownloadUrl(jobId) {
+    return `${API_BASE}/api/jobs/${jobId}/checkpoints/latest`;
+  },
+
+  async downloadFinalModel(jobId, jobName = "model") {
+    const filename = `neurobroker_${jobName.replace(/[^a-zA-Z0-9_-]/g, "_")}_final.pth`;
+    try {
+      await this.downloadFile(this.getFinalModelDownloadUrl(jobId), filename);
+    } catch (e) {
+      // Fallback to latest checkpoint
+      await this.downloadFile(this.getLatestCheckpointDownloadUrl(jobId), filename);
+    }
+  },
+
   // Jobs
   async getJobs() {
     const res = await fetch(`${API_BASE}/api/jobs`, { headers: getHeaders() });
@@ -192,6 +204,15 @@ export const api = {
       headers: getHeaders(),
     });
     if (!res.ok) throw await responseError(res, "Unable to stop training job");
+    return res.json();
+  },
+
+  async deleteJob(jobId) {
+    const res = await fetch(`${API_BASE}/api/jobs/${jobId}`, {
+      method: "DELETE",
+      headers: getHeaders(),
+    });
+    if (!res.ok) throw await responseError(res, "Unable to delete training job");
     return res.json();
   },
 
@@ -249,10 +270,11 @@ export const api = {
   },
 
   async getSchedulerDecisions(jobId = "") {
-    let url = `${API_BASE}/api/admin/scheduler-decisions?limit=100`;
-    if (jobId) url += `&job_id=${jobId}`;
+    const url = jobId
+      ? `${API_BASE}/api/jobs/${jobId}/decisions`
+      : `${API_BASE}/api/admin/scheduler-decisions?limit=100`;
     const res = await fetch(url, { headers: getHeaders() });
-    if (!res.ok) throw await responseError(res, "Failed to load scheduler decisions");
+    if (!res.ok) return [];
     return res.json();
   },
 };

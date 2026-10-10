@@ -56,7 +56,16 @@ class ModelLoader:
         elif hasattr(module, "Model"):
             model = module.Model()
         else:
-            raise AttributeError("model.py must define 'build_model()' or 'Net' class.")
+            model_cls = None
+            for attr_name in dir(module):
+                attr = getattr(module, attr_name)
+                if isinstance(attr, type) and issubclass(attr, nn.Module) and attr is not nn.Module:
+                    model_cls = attr
+                    break
+            if model_cls:
+                model = model_cls()
+            else:
+                raise AttributeError("model.py must define 'build_model()', 'Net', 'Model', or an nn.Module subclass.")
             
         return model
 

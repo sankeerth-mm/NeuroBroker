@@ -10,4 +10,5 @@ echo "  Port: 8000"
 echo "========================================================"
 
 python3 scripts/seed_database.py
-python3 -m uvicorn backend.app.main:app --host 0.0.0.0 --port 8000 --timeout-keep-alive 65 --reload
+python3 -m uvicorn backend.app.main:app --host 0.0.0.0 --port 8000 --timeout-keep-alive 65 --reload --reload-dir backend/app
+
